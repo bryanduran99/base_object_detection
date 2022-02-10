@@ -53,9 +53,10 @@ def main(args):
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    VOC_root = args.data_path
+    # VOC_root = args.data_path
+    VOC_root = "../../data/voc"
     # check voc root
-    if os.path.exists(os.path.join(VOC_root, "VOCdevkit")) is False:
+    if os.path.exists(os.path.join("../../data/voc", "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load train data set
@@ -205,7 +206,7 @@ if __name__ == "__main__":
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=20, type=int, metavar='N',
+    parser.add_argument('--epochs', default=15, type=int, metavar='N',
                         help='number of total epochs to run')
     # 数据加载以及预处理的线程数
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
