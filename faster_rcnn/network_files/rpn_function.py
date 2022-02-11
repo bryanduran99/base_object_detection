@@ -59,9 +59,10 @@ class AnchorsGenerator(nn.Module):
 
         assert len(sizes) == len(aspect_ratios)
 
-        self.sizes = sizes
-        self.aspect_ratios = aspect_ratios
-        self.cell_anchors = None
+
+        self.sizes = sizes # bryan: list[list2[num]] 每一个list2是一个特征层上的size
+        self.aspect_ratios = aspect_ratios  # bryan: list[list2[num]] 每一个list2是一个特征层上的aspect_ratios
+        self.cell_anchors = None      # bryan: list[list2[list3]] 每一个list2是一个特征层上的anchors坐标信息
         self._cache = {}
 
     def generate_anchors(self, scales, aspect_ratios, dtype=torch.float32, device=torch.device("cpu")):
@@ -205,7 +206,7 @@ class AnchorsGenerator(nn.Module):
         anchors = [torch.cat(anchors_per_image) for anchors_per_image in anchors]
         # Clear the cache in case that memory leaks.
         self._cache.clear()
-        return anchors
+        return anchors  # bryan:anchor 结构   shape(batch_num,feature_level_num,anchor_num,4[anchor 的4个坐标])
 
 
 class RPNHead(nn.Module):

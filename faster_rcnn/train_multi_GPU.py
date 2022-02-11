@@ -54,9 +54,9 @@ def main(args):
     }
 
     # VOC_root = args.data_path
-    VOC_root = "../../data/voc"
+    VOC_root = "../../../data/"
     # check voc root
-    if os.path.exists(os.path.join("../../data/voc", "VOCdevkit")) is False:
+    if os.path.exists(os.path.join("../../../data/", "VOCdevkit")) is False:
         raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
 
     # load train data set
