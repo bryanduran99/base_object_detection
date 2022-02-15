@@ -200,13 +200,14 @@ class AnchorsGenerator(nn.Module):
             # 遍历每张预测特征图映射回原图的anchors坐标信息
             for anchors_per_feature_map in anchors_over_all_feature_maps:
                 anchors_in_image.append(anchors_per_feature_map)
-            anchors.append(anchors_in_image)
+            anchors.append(anchors_in_image) # bryan:anchor 结构   shape(batch_num,feature_level_num,anchor_num,4[anchor 的4个坐标])
+
         # 将每一张图像的所有预测特征层的anchors坐标信息拼接在一起
         # anchors是个list，每个元素为一张图像的所有anchors信息
         anchors = [torch.cat(anchors_per_image) for anchors_per_image in anchors]
         # Clear the cache in case that memory leaks.
         self._cache.clear()
-        return anchors  # bryan:anchor 结构   shape(batch_num,feature_level_num,anchor_num,4[anchor 的4个坐标])
+        return anchors   #bryan: shape:(batch_num, feature_level_num*anchor_num,4)
 
 
 class RPNHead(nn.Module):
@@ -401,6 +402,7 @@ class RegionProposalNetwork(torch.nn.Module):
         for anchors_per_image, targets_per_image in zip(anchors, targets):
             gt_boxes = targets_per_image["boxes"]
             if gt_boxes.numel() == 0:
+                # bryan: 当前目标中是否有元素
                 device = anchors_per_image.device
                 matched_gt_boxes_per_image = torch.zeros(anchors_per_image.shape, dtype=torch.float32, device=device)
                 labels_per_image = torch.zeros((anchors_per_image.shape[0],), dtype=torch.float32, device=device)
@@ -421,7 +423,7 @@ class RegionProposalNetwork(torch.nn.Module):
                 # 反正计算目标边界框回归损失时只会用到正样本。
                 matched_gt_boxes_per_image = gt_boxes[matched_idxs.clamp(min=0)]
 
-                # 记录所有anchors匹配后的标签(正样本处标记为1，负样本处标记为0，丢弃样本处标记为-2)
+                # 记录所有anchors匹配后的标签(正样本处标记为1，负样本处标记为0，丢弃样本处标记为-1)
                 labels_per_image = matched_idxs >= 0
                 labels_per_image = labels_per_image.to(dtype=torch.float32)
 
@@ -433,7 +435,9 @@ class RegionProposalNetwork(torch.nn.Module):
                 inds_to_discard = matched_idxs == self.proposal_matcher.BETWEEN_THRESHOLDS  # -2
                 labels_per_image[inds_to_discard] = -1.0
 
+            # bryan: labels_per_image 每张图片上每个 anchor 对应的是正负还是舍弃样本
             labels.append(labels_per_image)
+            # bryan: matched_gt_boxes_per_image 每张图片上每个 anchor 对应的ground-truth 样本坐标
             matched_gt_boxes.append(matched_gt_boxes_per_image)
         return labels, matched_gt_boxes
 
@@ -468,8 +472,8 @@ class RegionProposalNetwork(torch.nn.Module):
         """
         筛除小boxes框，nms处理，根据预测概率获取前post_nms_top_n个目标
         Args:
-            proposals: 预测的bbox坐标
-            objectness: 预测的目标概率
+            proposals: 预测的bbox坐标 [batch_size , anchor_size all feature level, 4]
+            objectness: 预测的目标概率 [batch_size * anchor_size all feature level,1]
             image_shapes: batch中每张图片的size信息
             num_anchors_per_level: 每个预测特征层上预测anchors的数目
 
@@ -606,6 +610,8 @@ class RegionProposalNetwork(torch.nn.Module):
 
         # 计算每个预测特征层上的预测目标概率和bboxes regression参数
         # objectness和pred_bbox_deltas都是list
+
+        # bryan: objectness shape:(feature_level, batch_size, anchor_size, width, height)
         objectness, pred_bbox_deltas = self.head(features)
 
         # 生成一个batch图像的所有anchors信息,list(tensor)元素个数等于batch_size
@@ -622,6 +628,9 @@ class RegionProposalNetwork(torch.nn.Module):
         # 调整内部tensor格式以及shape
         objectness, pred_bbox_deltas = concat_box_prediction_layers(objectness,
                                                                     pred_bbox_deltas)
+        # bryan: concat 结果 objectness :       [batch_size * anchor_size_per_image, 1]
+        # bryan: concat 结果 pred_bbox_deltas : [batch_size * anchor_size_per_image, 4]
+
 
         # apply pred_bbox_deltas to anchors to obtain the decoded proposals
         # note that we detach the deltas because Faster R-CNN do not backprop through
