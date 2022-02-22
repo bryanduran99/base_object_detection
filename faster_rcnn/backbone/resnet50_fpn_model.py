@@ -177,6 +177,7 @@ class IntermediateLayerGetter(nn.ModuleDict):
         super(IntermediateLayerGetter, self).__init__(layers)
         self.return_layers = orig_return_layers
 
+
     def forward(self, x):
         out = OrderedDict()
         # 依次遍历模型的所有子模块，并进行正向传播，
@@ -228,6 +229,11 @@ class BackboneWithFPN(nn.Module):
         x = self.body(x)
         x = self.fpn(x)
         return x
+
+
+"""
+norm_layer=torch.nn.BatchNorm2d,
+                                     trainable_layers=3"""
 
 
 def resnet50_fpn_backbone(pretrain_path="",

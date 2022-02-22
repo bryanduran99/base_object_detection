@@ -97,6 +97,10 @@ def encode_boxes(reference_boxes, proposals, weights):
         weights:
     """
 
+    """
+    bryan ： 根据生成的proposals 和 reference boxes 计算回归参数，作为回归参数的targets
+    """
+
     # perform some unpacking to make it JIT-fusion friendly
     wx = weights[0]
     wy = weights[1]
