@@ -128,6 +128,8 @@ class YOLOLayer(nn.Module):
         self.anchor_vec = self.anchors / self.stride
         # batch_size, na, grid_h, grid_w, wh,
         # 值为1的维度对应的值不是固定值，后续操作可根据broadcast广播机制自动扩充
+
+        # bryan：[batch_size, anchor_num, grid_width, grid_height, anchor_size_in_this_feature_map]
         self.anchor_wh = self.anchor_vec.view(1, self.na, 1, 1, 2)
         self.grid = None
 

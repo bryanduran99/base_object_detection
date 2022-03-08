@@ -22,6 +22,9 @@ def _onnx_get_num_anchors_and_pre_nms_top_n(ob, orig_pre_nms_top_n):
     return num_anchors, pre_nms_top_n
 
 
+
+#bryan: shape:(batch_num, feature_level_num*anchor_num,4)
+
 class AnchorsGenerator(nn.Module):
     __annotations__ = {
         "cell_anchors": Optional[List[torch.Tensor]],

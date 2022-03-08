@@ -317,6 +317,10 @@ def build_targets(p, targets, model):
                                        'See https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data' % (
                                            model.nc, model.nc - 1, c.max())
 
+    ## bryan: tcls :每个正样本的目标类别信息
+    ## bryan: tbox: 每个正样本的目标回归参数
+    ## bryan: indices: (image_id, anchor_id,grid y, grid x)
+    ## bryan: anch : anchor width, height
     return tcls, tbox, indices, anch
 
 
