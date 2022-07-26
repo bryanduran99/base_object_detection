@@ -74,6 +74,37 @@ def generate_seeds(args):
                     fp.write("\n".join(result[c][shot]) + "\n")
 
 
+def generator_test_txt():
+    import os
+
+    rootann = 'VOC2007/Annotations'
+    roottrainval = 'VOC2007/ImageSets/Main/trainval.txt'
+    roottest = 'VOC2007/ImageSets/Main/test.txt'
+
+    file_names = os.listdir(rootann)
+    alls = []
+    for file_name in file_names:
+        file_name = file_name[:-4]
+        # print(file_name)
+        alls.append(file_name)
+
+    with open(roottrainval) as f:
+        trainvals = f.readlines()
+
+    trainandvals = []
+    for trainval in trainvals:
+        trainandvals.append(trainval[:-1])
+    # print(trainandvals)
+
+    with open(roottest, 'w') as f:
+        for all in alls:
+            if all not in trainandvals:
+                print("yes")
+                f.write(all + '\n')
+
+
 if __name__ == "__main__":
-    args = parse_args()
-    generate_seeds(args)
+    # generator_test_txt()
+    # args = parse_args()
+    # generate_seeds(args)
+    pass

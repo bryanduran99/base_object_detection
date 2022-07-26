@@ -16,4 +16,5 @@ SOLVER:
   STEPS: (12000, 16000)
   MAX_ITER: 18000  # 17.4 epochs
   WARMUP_ITERS: 100
+  IMS_PER_BATCH: 4
 OUTPUT_DIR: "checkpoints/voc/faster_rcnn/faster_rcnn_R_101_FPN_base1"
