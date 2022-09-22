@@ -3,34 +3,36 @@ import os
 import datetime
 
 import torch
+import torchvision
 
 import transforms
-from my_dataset import VOCDataSet
-from backbone import resnet50_fpn_backbone
-from network_files import FasterRCNN, FastRCNNPredictor
+from my_dataset import CocoDetection
+from backbone import resnet50
+from network_files import FasterRCNN, AnchorsGenerator
 import train_utils.train_eval_utils as utils
 from train_utils import GroupedBatchSampler, create_aspect_ratio_groups, init_distributed_mode, save_on_master, mkdir
+from torchvision.models.feature_extraction import create_feature_extractor
 
 
 def create_model(num_classes):
-    # 如果显存很小，建议使用默认的FrozenBatchNorm2d
-    # trainable_layers包括['layer4', 'layer3', 'layer2', 'layer1', 'conv1']， 5代表全部训练
-    backbone = resnet50_fpn_backbone(norm_layer=torch.nn.BatchNorm2d,
-                                     trainable_layers=3)
-    # 训练自己数据集时不要修改这里的91，修改的是传入的num_classes参数
-    model = FasterRCNN(backbone=backbone, num_classes=91)
-    # 载入预训练模型权重
-    # https://download.pytorch.org/models/fasterrcnn_resnet50_fpn_coco-258fb6c6.pth
-    weights_dict = torch.load("./backbone/fasterrcnn_resnet50_fpn_coco.pth", map_location='cpu')
-    missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
-    if len(missing_keys) != 0 or len(unexpected_keys) != 0:
-        print("missing_keys: ", missing_keys)
-        print("unexpected_keys: ", unexpected_keys)
+    # 以resnet50为backbone
+    # 预训练权重地址：https://download.pytorch.org/models/resnet50-19c8e357.pth
+    res50 = resnet50()
+    res50.load_state_dict(torch.load("./resnet50.pth", map_location="cpu"))
+    backbone = create_feature_extractor(res50, return_nodes={"layer3": "0"})
+    backbone.out_channels = 1024
 
-    # get number of input features for the classifier
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    # replace the pre-trained head with a new one
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    anchor_generator = AnchorsGenerator(sizes=((32, 64, 128, 256, 512),),
+                                        aspect_ratios=((0.5, 1.0, 2.0),))
+
+    roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'],  # 在哪些特征层上进行roi pooling
+                                                    output_size=[7, 7],  # roi_pooling输出特征矩阵尺寸
+                                                    sampling_ratio=2)  # 采样率
+
+    model = FasterRCNN(backbone=backbone,
+                       num_classes=num_classes,
+                       rpn_anchor_generator=anchor_generator,
+                       box_roi_pool=roi_pooler)
 
     return model
 
@@ -53,19 +55,15 @@ def main(args):
         "val": transforms.Compose([transforms.ToTensor()])
     }
 
-    # VOC_root = args.data_path
-    VOC_root = "../../../data/"
-    # check voc root
-    if os.path.exists(os.path.join("../../../data/", "VOCdevkit")) is False:
-        raise FileNotFoundError("VOCdevkit dose not in path:'{}'.".format(VOC_root))
+    COCO_root = args.data_path
 
     # load train data set
-    # VOCdevkit -> VOC2012 -> ImageSets -> Main -> train.txt
-    train_dataset = VOCDataSet(VOC_root, "2012", data_transform["train"], "train.txt")
+    # coco2017 -> annotations -> instances_train2017.json
+    train_dataset = CocoDetection(COCO_root, "train", data_transform["train"])
 
     # load validation data set
-    # VOCdevkit -> VOC2012 -> ImageSets -> Main -> val.txt
-    val_dataset = VOCDataSet(VOC_root, "2012", data_transform["val"], "val.txt")
+    # coco2017 -> annotations -> instances_val2017.json
+    val_dataset = CocoDetection(COCO_root, "val", data_transform["val"])
 
     print("Creating data loaders")
     if args.distributed:
@@ -88,14 +86,17 @@ def main(args):
         collate_fn=train_dataset.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size,
+        val_dataset, batch_size=1,
         sampler=test_sampler, num_workers=args.workers,
         collate_fn=train_dataset.collate_fn)
 
     print("Creating model")
-    # create model num_classes equal background + 20 classes
+    # create model num_classes equal background + classes
     model = create_model(num_classes=args.num_classes + 1)
     model.to(device)
+
+    if args.distributed and args.sync_bn:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     model_without_ddp = model
     if args.distributed:
@@ -124,10 +125,6 @@ def main(args):
         if args.amp and "scaler" in checkpoint:
             scaler.load_state_dict(checkpoint["scaler"])
 
-    if args.test_only:
-        utils.evaluate(model, data_loader_test, device=device)
-        return
-
     train_loss = []
     learning_rate = []
     val_map = []
@@ -140,33 +137,33 @@ def main(args):
         mean_loss, lr = utils.train_one_epoch(model, optimizer, data_loader,
                                               device, epoch, args.print_freq,
                                               warmup=True, scaler=scaler)
-        train_loss.append(mean_loss.item())
-        learning_rate.append(lr)
 
         # update learning rate
         lr_scheduler.step()
 
         # evaluate after every epoch
         coco_info = utils.evaluate(model, data_loader_test, device=device)
-        val_map.append(coco_info[1])  # pascal mAP
 
         # 只在主进程上进行写操作
         if args.rank in [-1, 0]:
+            train_loss.append(mean_loss.item())
+            learning_rate.append(lr)
+            val_map.append(coco_info[1])  # pascal mAP
+
             # write into txt
             with open(results_file, "a") as f:
                 # 写入的数据包括coco指标还有loss和learning rate
-                result_info = [str(round(i, 4)) for i in coco_info + [mean_loss.item()]] + [str(round(lr, 6))]
+                result_info = [f"{i:.4f}" for i in coco_info + [mean_loss.item()]] + [f"{lr:.6f}"]
                 txt = "epoch:{} {}".format(epoch, '  '.join(result_info))
                 f.write(txt + "\n")
 
         if args.output_dir:
             # 只在主节点上执行保存权重操作
-            save_files = {
-                'model': model_without_ddp.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'lr_scheduler': lr_scheduler.state_dict(),
-                'args': args,
-                'epoch': epoch}
+            save_files = {'model': model_without_ddp.state_dict(),
+                          'optimizer': optimizer.state_dict(),
+                          'lr_scheduler': lr_scheduler.state_dict(),
+                          'args': args,
+                          'epoch': epoch}
             if args.amp:
                 save_files["scaler"] = scaler.state_dict()
             save_on_master(save_files,
@@ -194,25 +191,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=__doc__)
 
-    # 训练文件的根目录(VOCdevkit)
-    parser.add_argument('--data-path', default='./', help='dataset')
+    # 训练文件的根目录(coco2017)
+    parser.add_argument('--data-path', default='/data/coco2017', help='dataset')
     # 训练设备类型
     parser.add_argument('--device', default='cuda', help='device')
     # 检测目标类别数(不包含背景)
-    parser.add_argument('--num-classes', default=20, type=int, help='num_classes')
+    parser.add_argument('--num-classes', default=90, type=int, help='num_classes')
     # 每块GPU上的batch_size
     parser.add_argument('-b', '--batch-size', default=4, type=int,
                         help='images per gpu, the total batch size is $NGPU x batch_size')
     # 指定接着从哪个epoch数开始训练
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     # 训练的总epoch数
-    parser.add_argument('--epochs', default=15, type=int, metavar='N',
+    parser.add_argument('--epochs', default=26, type=int, metavar='N',
                         help='number of total epochs to run')
     # 数据加载以及预处理的线程数
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
     # 学习率，这个需要根据gpu的数量以及batch_size进行设置0.02 / 8 * num_GPU
-    parser.add_argument('--lr', default=0.02, type=float,
+    parser.add_argument('--lr', default=0.01, type=float,
                         help='initial learning rate, 0.02 is the default value for training '
                              'on 8 gpus and 2 images_per_gpu')
     # SGD的momentum参数
@@ -225,7 +222,8 @@ if __name__ == "__main__":
     # 针对torch.optim.lr_scheduler.StepLR的参数
     parser.add_argument('--lr-step-size', default=8, type=int, help='decrease lr every step-size epochs')
     # 针对torch.optim.lr_scheduler.MultiStepLR的参数
-    parser.add_argument('--lr-steps', default=[7, 12], nargs='+', type=int, help='decrease lr every step-size epochs')
+    parser.add_argument('--lr-steps', default=[16, 22], nargs='+', type=int,
+                        help='decrease lr every step-size epochs')
     # 针对torch.optim.lr_scheduler.MultiStepLR的参数
     parser.add_argument('--lr-gamma', default=0.1, type=float, help='decrease lr by a factor of lr-gamma')
     # 训练过程打印信息的频率
@@ -235,18 +233,12 @@ if __name__ == "__main__":
     # 基于上次的训练结果接着训练
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--aspect-ratio-group-factor', default=3, type=int)
-    # 不训练，仅测试
-    parser.add_argument(
-        "--test-only",
-        dest="test_only",
-        help="Only test the model",
-        action="store_true",
-    )
 
     # 开启的进程数(注意不是线程)
     parser.add_argument('--world-size', default=4, type=int,
                         help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
+    parser.add_argument("--sync-bn", dest="sync_bn", help="Use sync batch norm", type=bool, default=False)
     # 是否使用混合精度训练(需要GPU支持混合精度)
     parser.add_argument("--amp", default=False, help="Use torch.cuda.amp for mixed precision training")
 

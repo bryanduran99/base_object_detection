@@ -80,30 +80,22 @@ class FasterRCNNBase(nn.Module):
         # original_image_sizes = [img.shape[-2:] for img in images]
 
         images, targets = self.transform(images, targets)  # 对图像进行预处理
-
         # print(images.tensors.shape)
         features = self.backbone(images.tensors)  # 将图像输入backbone得到特征图
         if isinstance(features, torch.Tensor):  # 若只在一层特征层上预测，将feature放入有序字典中，并编号为‘0’
             features = OrderedDict([('0', features)])  # 若在多层特征层上预测，传入的就是一个有序字典
 
         # 将特征层以及标注target信息传入rpn中
-        # proposals: List[Tensor], Tensor_shape: [num_proposals, 4],   proposal_losses Dict['str', Tensor[int]]
+        # proposals: List[Tensor], Tensor_shape: [num_proposals, 4],
         # 每个proposals是绝对坐标，且为(x1, y1, x2, y2)格式
         proposals, proposal_losses = self.rpn(images, features, targets)
-        # proposals: List[batch_num, Tensor[proposals_num 指定个数比如2000个，4]    proposals_losses: [(Tensor)proposal_objs,(Tensor)proposal_rpn_box_reg]
+
         # 将rpn生成的数据以及标注target信息传入fast rcnn后半部分
         detections, detector_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
-        # detections : List[batch_num, Dict['boxes', 'labels', 'scores'] =
-        #             # boxes: List[batch_num, Tensor[指定个数的proposals,4]
-        #             # scores List[batch_num, Tensor[指定个数的proposals]
-        #             # labels List[batch_num, Tensor[指定个数的proposals]
-        # detector_losses : [loss_classifier(tensor),loss_box_reg(tensor)]  detector_losses: [(Tensor)loss_classifier, (Tensor)loss_box_reg]
+
         # 对网络的预测结果进行后处理（主要将bboxes还原到原图像尺度上）
         detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
-        #detections 是个List 里面有下面三个元素。
-        # all_boxes : List[batch_num, Tensor[proposal_num, 4]
-        # all_scores : List[batch_num, Tensor[proposal_num]
-        # all_labels: List[batch_num, Tensor[proposal_num]     boxes 就是 框， score 是置信度，每一个框对应一个值， labels 对应这个框是哪一个类别。
+
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)

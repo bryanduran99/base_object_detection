@@ -50,7 +50,7 @@ def get_transform(train):
 
 def create_model(aux, num_classes):
     model = fcn_resnet50(aux=aux, num_classes=num_classes)
-    weights_dict = torch.load("./fcn_resnet50_coco.pth", map_location='cpu')
+    weights_dict = torch.load("./fcn_resnet50_coco-1167a1af.pth", map_location='cpu')
 
     if num_classes != 21:
         # 官方提供的预训练权重是21类(包括背景)
@@ -208,7 +208,7 @@ if __name__ == "__main__":
         description=__doc__)
 
     # 训练文件的根目录(VOCdevkit)
-    parser.add_argument('--data-path', default='/data/', help='dataset')
+    parser.add_argument('--data-path', default='./data/', help='dataset')
     # 训练设备类型
     parser.add_argument('--device', default='cuda', help='device')
     # 检测目标类别数(不包含背景)

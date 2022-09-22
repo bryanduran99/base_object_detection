@@ -23,7 +23,7 @@ def nms(boxes, scores, iou_threshold):
         scores for each one of the boxes
     iou_threshold : float
         discards all overlapping
-        boxes with IoU < iou_threshold
+        boxes with IoU > iou_threshold
 
     Returns
     -------
@@ -110,7 +110,7 @@ def clip_boxes_to_image(boxes, size):
     """
     Clip boxes so that they lie inside an image of size `size`.
     裁剪预测的boxes信息，将越界的坐标调整到图片边界上
-    # boxes : Tensor[proposal_per_image, 4]            size [shape]
+
     Arguments:
         boxes (Tensor[N, 4]): boxes in (x1, y1, x2, y2) format
         size (Tuple[height, width]): size of the image
@@ -170,7 +170,6 @@ def box_iou(boxes1, boxes2):
 
     #  When the shapes do not match,
     #  the shape of the returned output tensor follows the broadcasting rules
-    #广播机制，求解gT 和 所有anchor 之间的IOU
     lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # left-top [N,M,2]
     rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # right-bottom [N,M,2]
 

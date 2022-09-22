@@ -27,10 +27,7 @@ class BalancedPositiveNegativeSampler(object):
                 Each tensor corresponds to a specific image.
                 -1 values are ignored, 0 are considered as negatives and > 0 as
                 positives.
-        for RPN:
-            # labels : List(batch_num, Tensor[anchors_matched_GT_label_num])  0 是背景， -1 是丢弃样本，>=1 是正样本
-        for ROI Head
-            # labels : List[batch_num , Tensor[proposals_matched_GT_label_num] 0 是背景， -1 是丢弃样本，>=1 是正样本
+
         Returns:
             pos_idx (list[tensor])
             neg_idx (list[tensor])
@@ -41,7 +38,7 @@ class BalancedPositiveNegativeSampler(object):
         """
         pos_idx = []
         neg_idx = []
-        # 遍历每张图像的matched_idxs    # labels = matched_idx : List(batch_num, Tensor[anchors])
+        # 遍历每张图像的matched_idxs
         for matched_idxs_per_image in matched_idxs:
             # >= 1的为正样本, nonzero返回非零元素索引
             # positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
@@ -85,14 +82,12 @@ class BalancedPositiveNegativeSampler(object):
             neg_idx.append(neg_idx_per_image_mask)
 
         return pos_idx, neg_idx
-        # pos_idx : List[batch_num, Tensor[proposal_num_per_image]   选取的正样本位置为1， 其他位置为 0
-        # neg_idx : List[batch_num, Tensor[proposal_num_per_image]   选取的负样本位置为1， 其他位置为 0；
+
+
 @torch.jit._script_if_tracing
 def encode_boxes(reference_boxes, proposals, weights):
     # type: (torch.Tensor, torch.Tensor, torch.Tensor) -> torch.Tensor
     """
-        # reference_boxes : Tesnor[all_image_anchor_target,4]
-        # proposals: Tensor[all_iamge_anchor_anchor,4]
     Encode a set of proposals with respect to some
     reference boxes
 
@@ -100,10 +95,6 @@ def encode_boxes(reference_boxes, proposals, weights):
         reference_boxes (Tensor): reference boxes(gt)
         proposals (Tensor): boxes to be encoded(anchors)
         weights:
-    """
-
-    """
-    bryan ： 根据生成的proposals 和 reference boxes 计算回归参数，作为回归参数的targets
     """
 
     # perform some unpacking to make it JIT-fusion friendly
@@ -143,7 +134,6 @@ def encode_boxes(reference_boxes, proposals, weights):
     targets_dh = wh * torch.log(gt_heights / ex_heights)
 
     targets = torch.cat((targets_dx, targets_dy, targets_dw, targets_dh), dim=1)
-    # targets Tensor[all_image_anchor_target,4] 4 是四个回归参数。
     return targets
 
 
@@ -166,8 +156,6 @@ class BoxCoder(object):
     def encode(self, reference_boxes, proposals):
         # type: (List[Tensor], List[Tensor]) -> List[Tensor]
         """
-        # matched_gt_boxes/reference_boxes : List(batch_num,  Tensor[anchor_num_per_image,4])
-        # anchors/proposals: List(batch_num,Tensor[anchor_size_per_image,4])  ,  List[Tensor]
         结合anchors和与之对应的gt计算regression参数
         Args:
             reference_boxes: List[Tensor] 每个proposal/anchor对应的gt_boxes
@@ -177,25 +165,20 @@ class BoxCoder(object):
 
         """
         # 统计每张图像的anchors个数，方便后面拼接在一起处理后在分开
-
+        # reference_boxes和proposal数据结构相同
         boxes_per_image = [len(b) for b in reference_boxes]
         reference_boxes = torch.cat(reference_boxes, dim=0)
         proposals = torch.cat(proposals, dim=0)
-        # reference_boxes : Tesnor[all_image_anchor_target,4]
-        # proposals: Tensor[all_iamge_anchor_anchor,4]
 
         # targets_dx, targets_dy, targets_dw, targets_dh
         targets = self.encode_single(reference_boxes, proposals)
-        # targets Tensor[all_image_anchor_target,4] 4 是四个回归参数。
         return targets.split(boxes_per_image, 0)
-        # targets targets.split(boxes_per_image, 0): List[batch_num, Tensor[targets_per_image,4] 4 是四个回归参数。
 
     def encode_single(self, reference_boxes, proposals):
         """
         Encode a set of proposals with respect to some
         reference boxes
-        # reference_boxes : Tesnor[all_image_anchor_target,4]
-        # proposals: Tensor[all_iamge_anchor_anchor,4]
+
         Arguments:
             reference_boxes (Tensor): reference boxes
             proposals (Tensor): boxes to be encoded
@@ -204,7 +187,7 @@ class BoxCoder(object):
         device = reference_boxes.device
         weights = torch.as_tensor(self.weights, dtype=dtype, device=device)
         targets = encode_boxes(reference_boxes, proposals, weights)
-        # targets Tensor[all_image_anchor_target,4] 4 是四个回归参数。
+
         return targets
 
     def decode(self, rel_codes, boxes):
@@ -218,15 +201,10 @@ class BoxCoder(object):
         Returns:
 
         """
-
-        # real_codes : Tensor[batch_size * anchor_size_per_image, 4]  , Tensor
-        # boxes: (batch_num,Tensor[anchor_size_per_image,4])  ,  List[Tensor]
         assert isinstance(boxes, (list, tuple))
         assert isinstance(rel_codes, torch.Tensor)
         boxes_per_image = [b.size(0) for b in boxes]
-        # boxes_per_image :（feature_level_num * anchor_num_per_image)  List[Int]
         concat_boxes = torch.cat(boxes, dim=0)
-        # concat_boxes: Tesnor[batch_num * anchor_size_per_image,4]
 
         box_sum = 0
         for val in boxes_per_image:
@@ -255,7 +233,6 @@ class BoxCoder(object):
         boxes = boxes.to(rel_codes.dtype)
 
         # xmin, ymin, xmax, ymax
-        # w      h     w     h
         widths = boxes[:, 2] - boxes[:, 0]   # anchor/proposal宽度
         heights = boxes[:, 3] - boxes[:, 1]  # anchor/proposal高度
         ctr_x = boxes[:, 0] + 0.5 * widths   # anchor/proposal中心x坐标
@@ -271,8 +248,6 @@ class BoxCoder(object):
         # self.bbox_xform_clip=math.log(1000. / 16)   4.135
         dw = torch.clamp(dw, max=self.bbox_xform_clip)
         dh = torch.clamp(dh, max=self.bbox_xform_clip)
-
-        #bryan: 论文中给出的坐标计算公示
 
         pred_ctr_x = dx * widths[:, None] + ctr_x[:, None]
         pred_ctr_y = dy * heights[:, None] + ctr_y[:, None]
@@ -376,7 +351,7 @@ class Matcher(object):
             self.set_low_quality_matches_(matches, all_matches, match_quality_matrix)
 
         return matches
-        # matches: Tensor[proposals_matched_GT_num]    过滤之后 每个anchor 或者是 proposal 对应的ground truth 索引 或者是 -1 表示负样本， -2 表示丢弃样本， >=0 表示正样本
+
     def set_low_quality_matches_(self, matches, all_matches, match_quality_matrix):
         """
         Produce additional matches for predictions that have only low-quality matches.
@@ -384,9 +359,7 @@ class Matcher(object):
         maximum overlap with it (including ties); for each prediction in that set, if
         it is unmatched, then match it to the ground-truth with which it has the highest
         quality value.
-        """    # matches : Tensor[anchors_per_image]
-                #all_matches : Tensor[anchor_per_image]
-            # match_quality_matrix : Tensor[ground_truth, anchors]
+        """
         # For each gt, find the prediction with which it has highest quality
         # 对于每个gt boxes寻找与其iou最大的anchor，
         # highest_quality_foreach_gt为匹配到的最大iou值
@@ -426,8 +399,6 @@ def smooth_l1_loss(input, target, beta: float = 1. / 9, size_average: bool = Tru
     very similar to the smooth_l1_loss from pytorch, but with
     the extra beta parameter
     """
-    #input : Tensor[pos_anchor_num, 4]
-    # target: Tensor[target_num,4]
     n = torch.abs(input - target)
     # cond = n < beta
     cond = torch.lt(n, beta)

@@ -4,9 +4,8 @@ import time
 
 import torch
 
-from .coco_utils import get_coco_api_from_dataset
-from .coco_eval import CocoEvaluator
 import train_utils.distributed_utils as utils
+from .coco_eval import EvalCOCOMetric
 
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch,
@@ -31,6 +30,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch,
         # 混合精度训练上下文管理器，如果在CPU环境中不起任何作用
         with torch.cuda.amp.autocast(enabled=scaler is not None):
             loss_dict = model(images, targets)
+
             losses = sum(loss for loss in loss_dict.values())
 
         # reduce losses over all GPUs for logging purpose
@@ -67,59 +67,38 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch,
 
 @torch.no_grad()
 def evaluate(model, data_loader, device):
-
     cpu_device = torch.device("cpu")
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = "Test: "
 
-    coco = get_coco_api_from_dataset(data_loader.dataset) # ba
-    iou_types = _get_iou_types(model)
-    coco_evaluator = CocoEvaluator(coco, iou_types)
-
+    det_metric = EvalCOCOMetric(data_loader.dataset.coco, iou_type="bbox", results_file_name="det_results.json")
     for image, targets in metric_logger.log_every(data_loader, 100, header):
         image = list(img.to(device) for img in image)
-        # targets Dict['boxes', 'labels', 'image_id','area','iscrowd']
+
         # 当使用CPU时，跳过GPU相关指令
         if device != torch.device("cpu"):
             torch.cuda.synchronize(device)
 
         model_time = time.time()
         outputs = model(image)
-        # outputs 在下面两者选其一
-        # detections : List[batch_num, Dict['boxes', 'labels', 'scores'] =
-        #             # boxes: List[batch_num, Tensor[指定个数的proposals,4]
-        #             # scores List[batch_num, Tensor[指定个数的proposals]
-        #             # labels List[batch_num, Tensor[指定个数的proposals]
-        # detector_losses : [loss_classifier(tensor),loss_box_reg(tensor)]  detector_losses: [(Tensor)loss_classifier, (Tensor)loss_box_reg]
 
         outputs = [{k: v.to(cpu_device) for k, v in t.items()} for t in outputs]
         model_time = time.time() - model_time
 
-        res = {target["image_id"].item(): output for target, output in zip(targets, outputs)}
-
-        evaluator_time = time.time()
-        coco_evaluator.update(res)
-        evaluator_time = time.time() - evaluator_time
-        metric_logger.update(model_time=model_time, evaluator_time=evaluator_time)
+        det_metric.update(targets, outputs)
+        metric_logger.update(model_time=model_time)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
-    coco_evaluator.synchronize_between_processes()
 
-    # accumulate predictions from all images
-    coco_evaluator.accumulate()
-    coco_evaluator.summarize()
+    # 同步所有进程中的数据
+    det_metric.synchronize_results()
 
-    coco_info = coco_evaluator.coco_eval[iou_types[0]].stats.tolist()  # numpy to list
+    if utils.is_main_process():
+        coco_info = det_metric.evaluate()
+    else:
+        coco_info = None
 
     return coco_info
-
-
-def _get_iou_types(model):
-    model_without_ddp = model
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        model_without_ddp = model.module
-    iou_types = ["bbox"]
-    return iou_types

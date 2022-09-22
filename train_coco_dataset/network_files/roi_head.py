@@ -18,21 +18,18 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
         box_regression : 预测边目标界框回归信息
         labels : 真实类别信息
         regression_targets : 真实目标边界框信息
-            # class_logits : Tensor[batch_num * num_proposals ,cls]
-            # box_regression : Tensor[batch_num * num_proposals, cls * 4]
-            # labels : List[batch_num, Tensor[samples_cls]]      -1丢弃样本， 0 负样本 ， >1 正样本
-            # regress_targets : List[batch_num, Tensor[samples, four_res_parameters]
+
     Returns:
         classification_loss (Tensor)
         box_loss (Tensor)
     """
 
-    labels = torch.cat(labels, dim=0)   # labels  : Tensor[batch_num * proposals,cls]
+    labels = torch.cat(labels, dim=0)
     regression_targets = torch.cat(regression_targets, dim=0)
-    # regression_targets : Tensor[batch_num * proposals , 4]
+
     # 计算类别损失信息
     classification_loss = F.cross_entropy(class_logits, labels)
-    # Tensor[int]
+
     # get indices that correspond to the regression targets for
     # the corresponding ground truth labels, to be used with
     # advanced indexing
@@ -46,7 +43,7 @@ def fastrcnn_loss(class_logits, box_regression, labels, regression_targets):
     # shape=[num_proposal, num_classes]
     N, num_classes = class_logits.shape
     box_regression = box_regression.reshape(N, -1, 4)
-    # box_regression : Tensor[batch_num * proposals, cls, 4]
+
     # 计算边界框损失信息
     box_loss = det_utils.smooth_l1_loss(
         # 获取指定索引proposal的指定类别box信息
@@ -112,9 +109,6 @@ class RoIHeads(torch.nn.Module):
             gt_boxes:
             gt_labels:
 
-            # gt_boxes : List[batch_num, Tensor[GT_box_num, 4]]
-            # gt_labels  : List[batch_num, Tensor[GT_class]]
-            # proposals : List[batch_num, Tensor[N,4]]
         Returns:
 
         """
@@ -133,20 +127,20 @@ class RoIHeads(torch.nn.Module):
                 )
             else:
                 #  set to self.box_similarity when https://github.com/pytorch/pytorch/issues/27495 lands
-                # 计算proposal与每个gt_box的iou重合度  match_quality_matrix   : Tensor[gt_num, proposal_num]
+                # 计算proposal与每个gt_box的iou重合度
                 match_quality_matrix = box_ops.box_iou(gt_boxes_in_image, proposals_in_image)
 
                 # 计算proposal与每个gt_box匹配的iou最大值，并记录索引，
                 # iou < low_threshold索引值为 -1， low_threshold <= iou < high_threshold索引值为 -2
                 matched_idxs_in_image = self.proposal_matcher(match_quality_matrix)
-                ## matches_ids: Tensor[proposals_matched_GT_indexes]    过滤之后 每个anchor 或者是 proposal 对应的ground truth 索引 或者是 -1 表示负样本， -2 表示丢弃样本， >=0 表示正样本
+
                 # 限制最小值，防止匹配标签时出现越界的情况
                 # 注意-1, -2对应的gt索引会调整到0,获取的标签类别为第0个gt的类别（实际上并不是）,后续会进一步处理
                 clamped_matched_idxs_in_image = matched_idxs_in_image.clamp(min=0)
                 # 获取proposal匹配到的gt对应标签
                 labels_in_image = gt_labels_in_image[clamped_matched_idxs_in_image]
                 labels_in_image = labels_in_image.to(dtype=torch.int64)
-                #label_in_image : Tensor[proposal_label_num]
+
                 # label background (below the low threshold)
                 # 将gt索引为-1的类别设置为0，即背景，负样本
                 bg_inds = matched_idxs_in_image == self.proposal_matcher.BELOW_LOW_THRESHOLD  # -1
@@ -160,16 +154,11 @@ class RoIHeads(torch.nn.Module):
             matched_idxs.append(clamped_matched_idxs_in_image)
             labels.append(labels_in_image)
         return matched_idxs, labels
-        # matched_idxs : List[batch_num, Tensor[proposals_matched_GT_indexes_num]]
-        # labels : List[batch_num, Tensor[proposal_label_num]
 
     def subsample(self, labels):
         # type: (List[Tensor]) -> List[Tensor]
         # BalancedPositiveNegativeSampler
         sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        # sampled_pos_inds : List[batch_num, Tensor[proposal_num_per_image]]   选取的正样本位置为1， 其他位置为 0
-        # sampled_neg_inds : List[batch_num, Tensor[proposal_num_per_image]]  选取的负样本位置为1， 其他位置为 0；
-
         sampled_inds = []
         # 遍历每张图片的正负样本索引
         for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
@@ -178,7 +167,7 @@ class RoIHeads(torch.nn.Module):
             img_sampled_inds = torch.where(pos_inds_img | neg_inds_img)[0]
             sampled_inds.append(img_sampled_inds)
         return sampled_inds
-        # sampled_inds : List[batch_num, Tensor[正负样本的索引位置]
+
     def add_gt_proposals(self, proposals, gt_boxes):
         # type: (List[Tensor], List[Tensor]) -> List[Tensor]
         """
@@ -213,8 +202,7 @@ class RoIHeads(torch.nn.Module):
         Args:
             proposals: rpn预测的boxes
             targets:
-            #proposals : List[batch_num, Tensor[N,4]]
-            #targets :  List[Dict['str', Tensor] ] ]
+
         Returns:
 
         """
@@ -230,23 +218,17 @@ class RoIHeads(torch.nn.Module):
         # 获取标注好的boxes以及labels信息
         gt_boxes = [t["boxes"].to(dtype) for t in targets]
         gt_labels = [t["labels"] for t in targets]
-        # gt_boxes : List[batch_num, Tensor[GT_box_num, 4]]
-        # gt_labels  : List[batch_num, Tensor[GT_class]]
+
         # append ground-truth bboxes to proposal
         # 将gt_boxes拼接到proposal后面
-
-        # proposals : List[batch_num, Tensor[N,4]]   N是所有的proposal
-        # gt_boxes : List[batch_num, Tensor[GT_box_num, 4]]
         proposals = self.add_gt_proposals(proposals, gt_boxes)
 
         # get matching gt indices for each proposal
         # 为每个proposal匹配对应的gt_box，并划分到正负样本中
         matched_idxs, labels = self.assign_targets_to_proposals(proposals, gt_boxes, gt_labels)
-        # matched_idxs : List[batch_num, Tensor[proposals_matched_GT_indexes_clamped_num]]
-        # labels : List[batch_num, Tensor[proposal_label_num]
         # sample a fixed proportion of positive-negative proposals
         # 按给定数量和比例采样正负样本
-        sampled_inds = self.subsample(labels)    # sampled_inds : List[batch_num, Tensor[正负样本的索引位置]
+        sampled_inds = self.subsample(labels)
         matched_gt_boxes = []
         num_images = len(proposals)
 
@@ -255,22 +237,22 @@ class RoIHeads(torch.nn.Module):
             # 获取每张图像的正负样本索引
             img_sampled_inds = sampled_inds[img_id]
             # 获取对应正负样本的proposals信息
-            proposals[img_id] = proposals[img_id][img_sampled_inds]   # 操作之后的proposal List[batch_num, Tensor[N,4]]   N是所有的samples
+            proposals[img_id] = proposals[img_id][img_sampled_inds]
             # 获取对应正负样本的真实类别信息
-            labels[img_id] = labels[img_id][img_sampled_inds]         #  操作之后的labels List[batch_num, Tensor[samplers_label]]   是所有的samples
+            labels[img_id] = labels[img_id][img_sampled_inds]
             # 获取对应正负样本的gt索引信息
-            matched_idxs[img_id] = matched_idxs[img_id][img_sampled_inds]  #操作之后的matched_idxs : List[batch_num, Tensor[samplers_matched_GT_indexes_clamped_num]]
+            matched_idxs[img_id] = matched_idxs[img_id][img_sampled_inds]
 
             gt_boxes_in_image = gt_boxes[img_id]
             if gt_boxes_in_image.numel() == 0:
                 gt_boxes_in_image = torch.zeros((1, 4), dtype=dtype, device=device)
             # 获取对应正负样本的gt box信息
-            matched_gt_boxes.append(gt_boxes_in_image[matched_idxs[img_id]])    # matched_gt_boxes : List[batch_num, Tensor[sample's GT,4]]
+            matched_gt_boxes.append(gt_boxes_in_image[matched_idxs[img_id]])
 
-        # 根据gt和proposal计算边框回归参数（针对gt的）  proposal List[batch_num, Tensor[samples,4]]   N是所有的samples
-        regression_targets = self.box_coder.encode(matched_gt_boxes, proposals)  # matched_gt_boxes : List[batch_num, Tensor[sample's GT,4]]
+        # 根据gt和proposal计算边框回归参数（针对gt的）
+        regression_targets = self.box_coder.encode(matched_gt_boxes, proposals)
         return proposals, labels, regression_targets
-        # regress_targets : List[batch_num, Tensor[samples, four_res_parameters]
+
     def postprocess_detections(self,
                                class_logits,    # type: Tensor
                                box_regression,  # type: Tensor
@@ -279,11 +261,6 @@ class RoIHeads(torch.nn.Module):
                                ):
         # type: (...) -> Tuple[List[Tensor], List[Tensor], List[Tensor]]
         """
-
-        # class_logits : Tensor[num_proposals_all_image,cls]
-        # box_regression : Tensor[num_proposals_all_image , class * 4]
-        # proposals(List[Tensor[N, 4]])
-        # image_shapes(List[Tuple[H, W]])
         对网络的预测数据进行后处理，包括
         （1）根据proposal以及预测的回归参数计算出最终bbox坐标
         （2）对预测类别结果进行softmax处理
@@ -310,7 +287,7 @@ class RoIHeads(torch.nn.Module):
         boxes_per_image = [boxes_in_image.shape[0] for boxes_in_image in proposals]
         # 根据proposal以及预测的回归参数计算出最终bbox坐标
         pred_boxes = self.box_coder.decode(box_regression, proposals)
-        # pred_boxes : Tensor[all_pred_boxes_all_images, cls, 4]
+
         # 对预测类别结果进行softmax处理
         pred_scores = F.softmax(class_logits, -1)
 
@@ -318,7 +295,7 @@ class RoIHeads(torch.nn.Module):
         # 根据每张图像的预测bbox数量分割结果
         pred_boxes_list = pred_boxes.split(boxes_per_image, 0)
         pred_scores_list = pred_scores.split(boxes_per_image, 0)
-        # pre_boxes_list : List[batch_num, Tensor[pred_boxes_per_images, cls, 4] pred_scores_list: List[batch_num, Tensor[pred_boxes_per_images,cls]
+
         all_boxes = []
         all_scores = []
         all_labels = []
@@ -326,7 +303,7 @@ class RoIHeads(torch.nn.Module):
         for boxes, scores, image_shape in zip(pred_boxes_list, pred_scores_list, image_shapes):
             # 裁剪预测的boxes信息，将越界的坐标调整到图片边界上
             boxes = box_ops.clip_boxes_to_image(boxes, image_shape)
-            #boxes : Tensor[pred_boxes_per_image,cls, 4] image_shape Tuple[int, int] scores: Tensor[pred_boxes_per_image, cls]
+
             # create labels for each prediction
             labels = torch.arange(num_classes, device=device)
             labels = labels.view(1, -1).expand_as(scores)
@@ -368,10 +345,7 @@ class RoIHeads(torch.nn.Module):
             all_labels.append(labels)
 
         return all_boxes, all_scores, all_labels
-    # all_boxes : List[batch_num, Tensor[proposal_num, 4]
-    # all_scores : List[batch_num, Tensor[proposal_num]
-    # all_labels: List[batch_num, Tensor[proposal_num]
-    # 注意一个box 变成了 cls 个boxes 了。为什么？ 因为一个box 对应 21 个类别的回归参数，然后这样就生成各个类别的 共21 个 box ，每个box 有一个socre， 表示是这一个类别的概率。
+
     def forward(self,
                 features,       # type: Dict[str, Tensor]
                 proposals,      # type: List[Tensor]
@@ -396,13 +370,7 @@ class RoIHeads(torch.nn.Module):
 
         if self.training:
             # 划分正负样本，统计对应gt的标签以及边界框回归信息
-            #proposals : List[batch_num, Tensor[N,4]]
-            #targets :  List[Dict['str', Tensor] ] ]
             proposals, labels, regression_targets = self.select_training_samples(proposals, targets)
-
-            #proposal List[batch_num, Tensor[samples, 4]]  samples是所有的samples
-            # labels : List[batch_num, Tensor[samples_cls]]      -1丢弃样本， 0 负样本 ， >1 正样本
-            # regress_targets : List[batch_num, Tensor[samples, four_res_parameters]
         else:
             labels = None
             regression_targets = None
@@ -412,37 +380,24 @@ class RoIHeads(torch.nn.Module):
         box_features = self.box_roi_pool(features, proposals, image_shapes)
 
         # 通过roi_pooling后的两层全连接层
-        # box_features_shape: Tensor[num_proposals_all_image, representation_size]
+        # box_features_shape: [num_proposals, representation_size]
         box_features = self.box_head(box_features)
 
         # 接着分别预测目标类别和边界框回归参数
         class_logits, box_regression = self.box_predictor(box_features)
-        # class_logits : Tensor[num_proposals_all_image ,cls]   box_regression : Tensor[num_proposals_all_image, cls * 4]
+
         result = torch.jit.annotate(List[Dict[str, torch.Tensor]], [])
         losses = {}
         if self.training:
             assert labels is not None and regression_targets is not None
-            # regress_targets : List[batch_num, Tensor[samples, four_res_parameters]
-            # labels : List[batch_num, Tensor[samples_cls]]      -1丢弃样本， 0 负样本 ， >1 正样本
-            # class_logits : Tensor[num_proposals_all_image ,cls]
-            # box_regression : Tensor[num_proposals_all_image, cls * 4]
             loss_classifier, loss_box_reg = fastrcnn_loss(
                 class_logits, box_regression, labels, regression_targets)
-
             losses = {
-                "loss_classifier": loss_classifier,  #tensor是一个
-                "loss_box_reg": loss_box_reg         #tensor是一个
+                "loss_classifier": loss_classifier,
+                "loss_box_reg": loss_box_reg
             }
-
         else:
-            # class_logits : Tensor[num_proposals_all_image,cls]
-            #  box_regression : Tensor[num_proposals_all_image , class * 4]
-            # proposals(List[Tensor[N, 4]])
-            # image_shapes(List[Tuple[H, W]])
             boxes, scores, labels = self.postprocess_detections(class_logits, box_regression, proposals, image_shapes)
-            # boxes: List[batch_num, Tensor[指定个数的proposals,4]
-            # scores List[batch_num, Tensor[指定个数的proposals]
-            # labels List[batch_num, Tensor[指定个数的proposals]
             num_images = len(boxes)
             for i in range(num_images):
                 result.append(
@@ -454,8 +409,3 @@ class RoIHeads(torch.nn.Module):
                 )
 
         return result, losses
-        #result : List[batch_num, Dict['boxes', 'labels', 'scores'] =
-            # boxes: List[batch_num, Tensor[指定个数的proposals,4]
-            # scores List[batch_num, Tensor[指定个数的proposals]
-            # labels List[batch_num, Tensor[指定个数的proposals]
-       # losses : [loss_classifier, loss_box_reg]

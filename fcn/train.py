@@ -52,7 +52,7 @@ def create_model(aux, num_classes, pretrain=True):
     model = fcn_resnet50(aux=aux, num_classes=num_classes)
 
     if pretrain:
-        weights_dict = torch.load("./fcn_resnet50_coco.pth", map_location='cpu')
+        weights_dict = torch.load("./fcn_resnet50_coco-1167a1af.pth", map_location='cpu')
 
         if num_classes != 21:
             # 官方提供的预训练权重是21类(包括背景)
@@ -169,7 +169,7 @@ def parse_args():
     import argparse
     parser = argparse.ArgumentParser(description="pytorch fcn training")
 
-    parser.add_argument("--data-path", default="/data/", help="VOCdevkit root")
+    parser.add_argument("--data-path", default="./data/", help="VOCdevkit root")
     parser.add_argument("--num-classes", default=20, type=int)
     parser.add_argument("--aux", default=True, type=bool, help="auxilier loss")
     parser.add_argument("--device", default="cuda", help="training device")

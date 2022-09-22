@@ -203,9 +203,9 @@ class VOCDataSet(Dataset):
 #                                  transforms.RandomHorizontalFlip(0.5)]),
 #     "val": transforms.Compose([transforms.ToTensor()])
 # }
-
+#
 # # load train data set
-# train_data_set = VOCDataSet("../../../data/voc", "2012", data_transform["train"], "train.txt")
+# train_data_set = VOCDataSet("../../../data/", "2012", data_transform["train"], "train.txt")
 # print(len(train_data_set))
 # for index in random.sample(range(0, len(train_data_set)), k=5):
 #     img, target = train_data_set[index]

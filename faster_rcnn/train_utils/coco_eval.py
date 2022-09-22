@@ -27,6 +27,11 @@ class CocoEvaluator(object):
         self.eval_imgs = {k: [] for k in iou_types}
 
     def update(self, predictions):
+        # predictions: Dict['image_id'] = Dict[boxes,labels,scores] =
+             # boxes: List[batch_num, Tensor[指定个数的proposals,4]
+             # scores List[batch_num, Tensor[指定个数的proposals]
+             # labels List[batch_num, Tensor[指定个数的proposals]
+
         img_ids = list(np.unique(list(predictions.keys())))
         self.img_ids.extend(img_ids)
 
@@ -36,14 +41,14 @@ class CocoEvaluator(object):
             coco_eval = self.coco_eval[iou_type]
 
             coco_eval.cocoDt = coco_dt
-            coco_eval.params.imgIds = list(img_ids)
+            coco_eval.params.imgIds = list(img_ids) # 这里设置imgIds 标定了在evaluate 中 evaluteImg 的图片。
             img_ids, eval_imgs = evaluate(coco_eval)
 
             self.eval_imgs[iou_type].append(eval_imgs)
 
     def synchronize_between_processes(self):
         for iou_type in self.iou_types:
-            self.eval_imgs[iou_type] = np.concatenate(self.eval_imgs[iou_type], 2)
+            self.eval_imgs[iou_type] = np.concatenate(self.eval_imgs[iou_type], 2)    # self.eval_imgs[iou_type] Tensor[cls, four_type_box(small, medium, big),images_ids], 选完之后是一个Dict   ：返回的是img_id,cat_id,aRng,maxDet,那张图片那个类别下那个大小的box下，那个maxDet下dtids,gtIds,dtMatches,gtMatches（matches 记录的是10个iou阈值) 这里gt 和dt已经配好对了。,dtScores就是dt 对应的那个分数。gtIgnores,dtIgnores
             create_common_coco_eval(self.coco_eval[iou_type], self.img_ids, self.eval_imgs[iou_type])
 
     def accumulate(self):
@@ -66,6 +71,10 @@ class CocoEvaluator(object):
             raise ValueError("Unknown iou type {}".format(iou_type))
 
     def prepare_for_coco_detection(self, predictions):
+        # predictions: Dict['image_id'] = Dict[boxes,labels,scores] =
+        # boxes: List[batch_num, Tensor[指定个数的proposals,4]
+        # scores List[batch_num, Tensor[指定个数的proposals]
+        # labels List[batch_num, Tensor[指定个数的proposals]
         coco_results = []
         for original_id, prediction in predictions.items():
             if len(prediction) == 0:
@@ -312,7 +321,7 @@ def evaluate(self):
     p.maxDets = sorted(p.maxDets)
     self.params = p
 
-    self._prepare()
+    self._prepare()    # 按照图片id 类别id 获得gt， dt
     # loop through images, area range, max detection number
     catIds = p.catIds if p.useCats else [-1]
 
@@ -323,7 +332,7 @@ def evaluate(self):
     self.ious = {
         (imgId, catId): computeIoU(imgId, catId)
         for imgId in p.imgIds
-        for catId in catIds}
+        for catId in catIds}   # 每张图片，每个类别的IOU 值。
 
     evaluateImg = self.evaluateImg
     maxDet = p.maxDets[-1]
@@ -332,7 +341,7 @@ def evaluate(self):
         for catId in catIds
         for areaRng in p.areaRng
         for imgId in p.imgIds
-    ]
+    ]   # evaluateImg(imgId, catId, areaRng, maxDet) 返回的是img_id,cat_id,aRng,maxDet,那张图片那个类别下那个大小的box下，那个maxDet下dtids,gtIds,dtMatches,gtMatches（matches 记录的是10个iou阈值) 这里gt 和dt已经配好对了。,dtScores就是dt 对应的那个分数。gtIgnores,dtIgnores
     # this is NOT in the pycocotools code, but could be done outside
     evalImgs = np.asarray(evalImgs).reshape(len(catIds), len(p.areaRng), len(p.imgIds))
     self._paramsEval = copy.deepcopy(self.params)
